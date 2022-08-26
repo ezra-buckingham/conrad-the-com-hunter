@@ -1,4 +1,4 @@
-#requires -version 2
+ #requires -version 2
 
 <#
 Author: Ezra Buckingham (@BuckinghamEzra)
@@ -119,13 +119,17 @@ $Module = New-InMemoryModule -ModuleName Win32
     [CmdletBinding()]
 
     param (
-        [Parameter(Mandatory=$true, HelpMessage="Registry hive to read from")] 
+        [Parameter(Mandatory=$true, HelpMessage="Input file from the Get-COMObjects function")] 
         [String]
         $InputFile,
 
         [Parameter(Mandatory=$true, HelpMessage="Output file for all class members")] 
         [String]
-        $OutputFile
+        $OutputFile,
+
+        [Parameter(Mandatory=$true, HelpMessage="Output file for all class members")] 
+        [String]
+        $ExclusionFile
     )
 
     BEGIN { 
@@ -136,6 +140,7 @@ $Module = New-InMemoryModule -ModuleName Win32
         catch {
 
         }
+        [string[]]$exclusion_list = Get-Content -Path $ExclusionFile
     }
 
     PROCESS {  
@@ -146,23 +151,44 @@ $Module = New-InMemoryModule -ModuleName Win32
 
         ForEach($class in $input_file) {
             $clsid = $class.PSChildName
-            Write-Output $clsid
+
+            $excluded = $false
+            ForEach($exc_clsid in $exclusion_list) {
+                $exc_clsid = $exc_clsid.replace('{', '')
+                $exc_clsid = $exc_clsid.replace('}', '')
+
+                if ($clsid -like "*${exc_clsid}*") {
+                    $excluded = $true
+                    break
+                }
+            }
+
+            if ($excluded) {
+                Write-Output "Skipping ${clsid} object"
+                continue
+            }
+
+            Write-Output "Creating ${clsid} object"
 
             try {
                 $handle = [activator]::CreateInstance([type]::GetTypeFromCLSID($clsid))
-                
-                $methods = $handle | Get-Member
-                $modified_methods = @()
+                try {
+                    $methods = $handle | Get-Member
+                    $modified_methods = @()
 
-                foreach($method in $methods) {
-                    $method | Add-Member -MemberType NoteProperty -Name "CLSID" -Value $clsid
-                    $modified_methods += $method
+                    foreach($method in $methods) {
+                        $method | Add-Member -MemberType NoteProperty -Name "CLSID" -Value $clsid
+                        $modified_methods += $method
+                    }
+                    $classes += $modified_methods
+
+                    $modified_methods | Export-Csv $OutputFile -Append
+
+                    $index += 1
                 }
-                $classes += $modified_methods
-
-                $modified_methods | Export-Csv $OutputFile -Append
-
-                $index += 1
+                catch {
+                    Write-Host "Unable to get members of ${clsid} object"
+                }
             }
             catch {
                 Write-Host "Unable to create ${clsid} object"
@@ -171,13 +197,11 @@ $Module = New-InMemoryModule -ModuleName Win32
 
         Write-Host "Found ${index} classes" 
 
-
     }        
     END { 
         Write-Host "End"
     }
 }
 
-#Get-COMObjects -Output conrad3.csv
-Get-ExportedMethods -InputFile conrad2.csv -OutputFile conrad2-out.csv 
+Get-ExportedMethods -InputFile conrad22.csv -OutputFile conrad22_out.csv -ExclusionFile C:\Users\Victim\Desktop\exc.txt.txt 
     
